@@ -51,4 +51,5 @@ export interface GameConfig {
   hexMode?: 'ai' | 'manual';
   hexCategories?: string[];
   hexManualQuestions?: Record<string, {question: string, answer: string}>;
+  customJson?: string;
 }

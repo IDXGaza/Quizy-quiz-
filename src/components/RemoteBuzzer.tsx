@@ -1,95 +1,129 @@
 
 import React, { useState, useEffect } from 'react';
-import { socket } from '../services/socket';
+import { db, auth } from '../firebase';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../services/firestoreUtils';
 
 const RemoteBuzzer: React.FC = () => {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<{id: string, name: string, color: string} | null>(null);
-  const [availablePlayers, setAvailablePlayers] = useState<{id: string, name: string, color: string}[]>([]);
   const [status, setStatus] = useState<'idle' | 'pressed' | 'error' | 'connecting' | 'locked'>('connecting');
   const [playerNameInput, setPlayerNameInput] = useState('');
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        signInAnonymously(auth).catch((error: any) => {
+          if (error.code === 'auth/admin-restricted-operation') {
+            setAuthError("عذراً، يجب تفعيل 'Anonymous Authentication' في لوحة تحكم Firebase.");
+          } else {
+            console.error("Auth Error:", error);
+            setAuthError(error.message);
+          }
+        });
+      } else {
+        setIsAuthReady(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+
     const params = new URLSearchParams(window.location.search);
     const rid = params.get('roomId');
     
-    if (rid) {
+    if (rid && isAuthReady && auth.currentUser) {
       setRoomId(rid);
-      setStatus(socket.connected ? 'idle' : 'connecting');
+      setStatus('idle');
       
-      const handleConnect = () => {
-        setStatus('idle');
-        if (selectedPlayer) {
-          socket.emit('joinRoom', { roomId: rid, player: selectedPlayer });
+      const roomRef = doc(db, 'rooms', rid);
+      const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+        if (!snapshot.exists()) {
+          setStatus('error');
+          return;
         }
-      };
-
-      const handleDisconnect = () => {
-        setStatus('connecting');
-      };
-
-      const handleError = (msg: string) => {
-        if (msg === 'Room not found') {
-          // Retry joining after a short delay in case the host is also reconnecting
-          setTimeout(() => {
-            if (selectedPlayer && socket.connected) {
-              socket.emit('joinRoom', { roomId: rid, player: selectedPlayer });
-            }
-          }, 2000);
+        
+        const data = snapshot.data();
+        if (data.buzzedPlayerId) {
+          if (selectedPlayer && data.buzzedPlayerId === selectedPlayer.id) {
+            setStatus('pressed');
+          } else {
+            setStatus('locked');
+          }
+        } else {
+          setStatus('idle');
         }
-      };
-
-      socket.on('connect', handleConnect);
-      socket.on('disconnect', handleDisconnect);
-      socket.on('error', handleError);
-
-      socket.on('buzzLocked', (buzzedId: string) => {
-        if (selectedPlayer && buzzedId !== selectedPlayer.id) {
-          setStatus('locked');
-        } else if (selectedPlayer && buzzedId === selectedPlayer.id) {
-          setStatus('pressed');
-        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `rooms/${rid}`);
       });
 
-      socket.on('buzzerReset', () => {
-        setStatus('idle');
-      });
-
-      return () => {
-        socket.off('connect', handleConnect);
-        socket.off('disconnect', handleDisconnect);
-        socket.off('error', handleError);
-        socket.off('buzzLocked');
-        socket.off('buzzerReset');
-      };
+      return () => unsubscribe();
     }
-  }, [selectedPlayer]);
+  }, [selectedPlayer, isAuthReady]);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!playerNameInput.trim() || !roomId) return;
+    if (!playerNameInput.trim() || !roomId || !auth.currentUser) return;
     
     const newPlayer = {
-      id: `p-${Date.now()}`,
+      id: auth.currentUser.uid,
       name: playerNameInput.trim(),
       color: '#38bdf8' // Default color
     };
     
     setSelectedPlayer(newPlayer);
-    socket.emit('joinRoom', { roomId, player: newPlayer });
+    
+    // Add player to room
+    const playerPath = `rooms/${roomId}/players/${auth.currentUser.uid}`;
+    setDoc(doc(db, playerPath), {
+      name: newPlayer.name,
+      color: newPlayer.color,
+      score: 0,
+      joinedAt: new Date().toISOString()
+    }).catch(err => handleFirestoreError(err, OperationType.WRITE, playerPath));
   };
 
   const handlePress = () => {
     if (!selectedPlayer || !roomId || status !== 'idle') return;
 
     setStatus('pressed');
-    socket.emit('buzz', { roomId, playerId: selectedPlayer.id });
+    
+    // Update room with buzzed player
+    const roomPath = `rooms/${roomId}`;
+    updateDoc(doc(db, roomPath), {
+      buzzedPlayerId: selectedPlayer.id,
+      buzzedAt: new Date().toISOString()
+    }).catch(err => {
+      console.error("Error buzzing in:", err);
+      setStatus('idle');
+      handleFirestoreError(err, OperationType.WRITE, roomPath);
+    });
+    
     if (window.navigator.vibrate) window.navigator.vibrate(200);
   };
 
   const goHome = () => {
     window.location.href = window.location.origin + window.location.pathname;
   };
+
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 text-center">
+        <div className="text-6xl mb-6">🔒</div>
+        <h2 className="text-2xl font-bold text-red-500 mb-4">خطأ في المصادقة</h2>
+        <p className="text-slate-500 max-w-md mb-6">{authError}</p>
+        <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-800 text-sm mb-6">
+          يرجى إبلاغ منظم المسابقة بتفعيل "Anonymous Authentication" في إعدادات Firebase.
+        </div>
+        <button onClick={goHome} className="px-10 py-4 sky-btn rounded-2xl font-bold shadow-lg text-white">العودة للرئيسية</button>
+      </div>
+    );
+  }
 
   if (!roomId) {
     return (

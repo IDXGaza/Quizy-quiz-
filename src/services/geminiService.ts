@@ -20,7 +20,8 @@ export const generateQuestions = async (
   mode: GameMode,
   difficulty: Difficulty
 ): Promise<Question[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey: apiKey || "" });
   
   const difficultyContext = getDifficultyText(difficulty);
   let promptText = "";
@@ -110,9 +111,74 @@ export const generateQuestions = async (
   }
 };
 
+export const parseCustomJson = (
+  jsonStr: string,
+  topic: string,
+  mode: GameMode,
+  difficulty: Difficulty
+): Question[] => {
+  try {
+    const rawData = JSON.parse(jsonStr);
+    if (!Array.isArray(rawData)) {
+      throw new Error("يجب أن يكون النص المدخل عبارة عن مصفوفة JSON.");
+    }
+
+    return rawData.map((q: any, idx: number) => {
+      let category = q.category || topic;
+      let points = q.points || 100;
+      
+      if (mode === GameMode.GRID && !q.category) {
+        const catIndex = Math.floor(idx / 5);
+        category = `الفئة ${catIndex + 1}`;
+        points = ((idx % 5) + 1) * 100;
+      }
+
+      return {
+        id: `custom-${Date.now()}-${idx}`,
+        text: q.text || "سؤال غير معروف",
+        answer: q.answer || "",
+        category: category,
+        points: points,
+        letter: mode === GameMode.HEX_GRID ? (q.letter || ARABIC_ALPHABET[idx % 25]) : q.letter,
+        type: QuestionType.OPEN,
+        difficulty: (q.difficulty as Difficulty) || difficulty
+      };
+    });
+  } catch (error: any) {
+    throw new Error("فشل في تحليل JSON المدخل: " + error.message);
+  }
+};
+
+export const getSampleJson = (mode: GameMode, topic: string): string => {
+  if (mode === GameMode.HEX_GRID) {
+    const samples = ARABIC_ALPHABET.slice(0, 25).map(l => ({
+      text: `سؤال يبدأ بحرف ${l} عن ${topic}`,
+      answer: `${l}...`,
+      difficulty: "MEDIUM",
+      letter: l
+    }));
+    return JSON.stringify(samples, null, 2);
+  } else {
+    const samples = [];
+    for (let i = 0; i < 4; i++) {
+      for (let j = 1; j <= 5; j++) {
+        samples.push({
+          text: `سؤال الفئة ${i + 1} بقيمة ${j * 100} عن ${topic}`,
+          answer: "إجابة نموذجية",
+          category: `الفئة ${i + 1}`,
+          points: j * 100,
+          difficulty: "MEDIUM"
+        });
+      }
+    }
+    return JSON.stringify(samples, null, 2);
+  }
+};
+
 // وظيفة احتياطية في حالة فشل الخدمة الرئيسية
 async function fallbackGenerate(topic: string, num: number, mode: GameMode, difficulty: Difficulty): Promise<Question[]> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey: apiKey || "" });
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview", 
     contents: `أنشئ مصفوفة JSON بسيطة لـ ${num} أسئلة عن ${topic} بمستوى صعوبة ${getDifficultyText(difficulty)}. [ { "text": "...", "answer": "..." } ]`

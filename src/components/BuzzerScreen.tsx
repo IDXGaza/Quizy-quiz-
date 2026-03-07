@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { GameConfig, Player, Question } from '../types';
 import { QRCodeSVG } from 'qrcode.react';
-import { socket } from '../services/socket';
+import { db, auth } from '../firebase';
+import { doc, setDoc, onSnapshot, collection, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../services/firestoreUtils';
 
 interface BuzzerScreenProps {
   config: GameConfig;
@@ -20,48 +22,65 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
   const [roomId] = useState(config.sessionId || Math.random().toString(36).substr(2, 9));
 
   useEffect(() => {
-    const joinRoom = () => {
-      socket.emit('createRoom', roomId);
-    };
+    if (!auth.currentUser) return;
 
-    joinRoom(); // initial join
-    socket.on('connect', joinRoom);
+    const roomRef = doc(db, 'rooms', roomId);
+    
+    // Create room
+    const roomPath = `rooms/${roomId}`;
+    setDoc(roomRef, {
+      hostId: auth.currentUser.uid,
+      gameState: 'waiting',
+      buzzedPlayerId: null,
+      buzzedAt: null,
+      createdAt: new Date().toISOString()
+    }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
 
-    const handlePlayerJoined = (roomPlayers: any[]) => {
-      const connected = roomPlayers.map(rp => {
-        const p = initialPlayers.find(ip => ip.id === rp.id);
-        return p || rp;
-      });
-      setConnectedPlayers(connected);
-    };
-
-    socket.on('playerJoined', handlePlayerJoined);
-
-    return () => {
-      socket.off('connect', joinRoom);
-      socket.off('playerJoined', handlePlayerJoined);
-    };
-  }, [roomId, initialPlayers]);
-
-  useEffect(() => {
-    const handlePlayerBuzzed = (playerId: string) => {
-      setGameState(prev => {
-        if (prev === 'question') {
-          setBuzzedPlayerId(playerId);
+    // Listen to room state
+    const unsubscribeRoom = onSnapshot(roomRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.buzzedPlayerId && data.gameState === 'question') {
+          setBuzzedPlayerId(data.buzzedPlayerId);
+          setGameState('buzzed');
           const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
           audio.play().catch(() => {});
-          return 'buzzed';
         }
-        return prev;
-      });
-    };
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, roomPath);
+    });
 
-    socket.on('playerBuzzed', handlePlayerBuzzed);
+    // Listen to players
+    const playersPath = `rooms/${roomId}/players`;
+    const playersRef = collection(db, 'rooms', roomId, 'players');
+    const unsubscribePlayers = onSnapshot(playersRef, (snapshot) => {
+      const currentPlayers: Player[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        currentPlayers.push({
+          id: doc.id,
+          name: data.name,
+          color: data.color,
+          score: data.score || 0
+        });
+      });
+      setConnectedPlayers(currentPlayers);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, playersPath);
+    });
 
     return () => {
-      socket.off('playerBuzzed', handlePlayerBuzzed);
+      unsubscribeRoom();
+      unsubscribePlayers();
+      // Cleanup room on unmount
+      getDocs(playersRef).then(snapshot => {
+        snapshot.forEach(d => deleteDoc(d.ref));
+      }).then(() => {
+        deleteDoc(roomRef);
+      }).catch(console.error);
     };
-  }, []);
+  }, [roomId]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -69,13 +88,17 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (gameState === 'question' && timeLeft === 0) {
       setGameState('revealed');
+      const roomPath = `rooms/${roomId}`;
+      updateDoc(doc(db, roomPath), { gameState: 'revealed' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     }
     return () => clearTimeout(timer);
-  }, [gameState, timeLeft]);
+  }, [gameState, timeLeft, roomId]);
 
   const startGame = () => {
     setPlayers(connectedPlayers.map(p => ({ ...p, score: 0 })));
     setGameState('playing');
+    const roomPath = `rooms/${roomId}`;
+    updateDoc(doc(db, roomPath), { gameState: 'playing' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
   };
 
   const nextQuestion = () => {
@@ -84,7 +107,12 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
       setGameState('question');
       setBuzzedPlayerId(null);
       setTimeLeft(15);
-      socket.emit('resetBuzzer', roomId);
+      const roomPath = `rooms/${roomId}`;
+      updateDoc(doc(db, roomPath), { 
+        gameState: 'question',
+        buzzedPlayerId: null,
+        buzzedAt: null
+      }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     } else {
       onFinish(players);
     }
@@ -94,7 +122,12 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
     setGameState('question');
     setBuzzedPlayerId(null);
     setTimeLeft(15);
-    socket.emit('resetBuzzer', roomId);
+    const roomPath = `rooms/${roomId}`;
+    updateDoc(doc(db, roomPath), { 
+      gameState: 'question',
+      buzzedPlayerId: null,
+      buzzedAt: null
+    }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
   };
 
   const activeQuestion = questions[currentQuestionIndex];
@@ -103,21 +136,58 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
 
   const handleAnswer = (isCorrect: boolean) => {
     if (isCorrect && buzzedPlayerId) {
-      setPlayers(players.map(p => 
+      const updatedPlayers = players.map(p => 
         p.id === buzzedPlayerId ? { ...p, score: p.score + (activeQuestion.points || 100) } : p
-      ));
+      );
+      setPlayers(updatedPlayers);
+      
+      // Update player score in Firestore
+      const playerPath = `rooms/${roomId}/players/${buzzedPlayerId}`;
+      updateDoc(doc(db, playerPath), {
+        score: updatedPlayers.find(p => p.id === buzzedPlayerId)?.score || 0
+      }).catch(err => handleFirestoreError(err, OperationType.WRITE, playerPath));
+
       setGameState('revealed');
+      const roomPath = `rooms/${roomId}`;
+      updateDoc(doc(db, roomPath), { gameState: 'revealed' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     } else {
       // If wrong, reset buzzer and let others buzz
       setBuzzedPlayerId(null);
       setGameState('question');
-      socket.emit('resetBuzzer', roomId);
+      const roomPath = `rooms/${roomId}`;
+      updateDoc(doc(db, roomPath), { 
+        gameState: 'question',
+        buzzedPlayerId: null,
+        buzzedAt: null
+      }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     }
   };
 
   const skipQuestion = () => {
     setGameState('revealed');
+    const roomPath = `rooms/${roomId}`;
+    updateDoc(doc(db, roomPath), { gameState: 'revealed' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
   };
+
+  if (!auth.currentUser) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+        <div className="text-6xl">🔒</div>
+        <h2 className="text-2xl font-black text-slate-800">عذراً، نظام البازر يتطلب تفعيل المصادقة</h2>
+        <p className="text-slate-500 max-w-md">
+          يجب تفعيل "Anonymous Authentication" في Firebase Console لتتمكن من استخدام ميزة البازر عن بُعد.
+        </p>
+        <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 text-amber-800 text-sm text-right">
+          <p className="font-bold mb-2">خطوات الحل:</p>
+          <ol className="list-decimal list-inside space-y-1">
+            <li>اذهب إلى Firebase Console</li>
+            <li>Authentication {"->"} Sign-in method</li>
+            <li>قم بتفعيل "Anonymous"</li>
+          </ol>
+        </div>
+      </div>
+    );
+  }
 
   if (gameState === 'waiting') {
     return (
