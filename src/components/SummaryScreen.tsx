@@ -1,15 +1,39 @@
 
-import React from 'react';
-import { Player } from '../types';
+import React, { useState } from 'react';
+import { Player, GameConfig, Question, SavedSet } from '../types';
 
 interface Props {
+  config: GameConfig;
+  questions: Question[];
   players: Player[];
   onRestart: () => void;
 }
 
-const SummaryScreen: React.FC<Props> = ({ players, onRestart }) => {
+const SummaryScreen: React.FC<Props> = ({ config, questions, players, onRestart }) => {
+  const [isSaved, setIsSaved] = useState(false);
   const sorted = [...players].sort((a, b) => b.score - a.score);
   
+  const handleSaveToLibrary = () => {
+    if (isSaved) return;
+    
+    const newSet: SavedSet = {
+      id: `set-${Date.now()}`,
+      name: `${config.topic || 'مسابقة'} - ${new Date().toLocaleDateString('ar-EG')}`,
+      topic: config.topic || 'مسابقة مخصصة',
+      numQuestions: questions.length,
+      mode: config.mode,
+      difficulty: config.difficulty,
+      questions: questions,
+      createdAt: Date.now()
+    };
+    
+    const existingSets = localStorage.getItem('savedSets');
+    const parsedSets: SavedSet[] = existingSets ? JSON.parse(existingSets) : [];
+    
+    localStorage.setItem('savedSets', JSON.stringify([newSet, ...parsedSets]));
+    setIsSaved(true);
+  };
+
   return (
     <div className="bg-white/90 backdrop-blur-xl p-12 md:p-20 max-w-2xl mx-auto text-center rounded-[4rem] shadow-2xl border border-white animate-fade-up">
       <div className="mb-14">
@@ -35,7 +59,16 @@ const SummaryScreen: React.FC<Props> = ({ players, onRestart }) => {
         ))}
       </div>
 
-      <button onClick={onRestart} className="sky-btn w-full py-6 rounded-2xl font-black text-2xl shadow-xl">العودة للرئيسية</button>
+      <div className="flex flex-col gap-4">
+        <button 
+          onClick={handleSaveToLibrary} 
+          disabled={isSaved}
+          className={`w-full py-4 rounded-2xl font-black text-xl shadow-md transition-all ${isSaved ? 'bg-emerald-100 text-emerald-600 border-2 border-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >
+          {isSaved ? '✅ تمت الإضافة إلى المكتبة' : '💾 حفظ المسابقة في المكتبة'}
+        </button>
+        <button onClick={onRestart} className="sky-btn w-full py-6 rounded-2xl font-black text-2xl shadow-xl">العودة للرئيسية</button>
+      </div>
     </div>
   );
 };

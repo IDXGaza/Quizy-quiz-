@@ -99,9 +99,10 @@ const RemoteBuzzer: React.FC = () => {
       buzzedPlayerId: selectedPlayer.id,
       buzzedAt: new Date().toISOString()
     }).catch(err => {
-      console.error("Error buzzing in:", err);
-      setStatus('idle');
-      handleFirestoreError(err, OperationType.WRITE, roomPath);
+      console.log("Buzz rejected (likely someone else was faster):", err.message);
+      // We do not call handleFirestoreError here because a rejection is expected
+      // if another player buzzed first (enforced by security rules).
+      // The onSnapshot listener will update the status to 'locked' shortly.
     });
     
     if (window.navigator.vibrate) window.navigator.vibrate(200);
@@ -149,7 +150,7 @@ const RemoteBuzzer: React.FC = () => {
               value={playerNameInput}
               onChange={(e) => setPlayerNameInput(e.target.value)}
               placeholder="اسم المتسابق"
-              className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-lg text-center focus:border-sky-400 focus:ring-4 focus:ring-sky-50 outline-none transition-all"
+              className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-lg text-center text-slate-950 focus:border-sky-400 focus:ring-4 focus:ring-sky-50 outline-none transition-all"
               required
             />
             <button

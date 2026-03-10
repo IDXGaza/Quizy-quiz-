@@ -40,8 +40,7 @@ service cloud.firestore {
     }
 
     function isValidDateString(dateStr) {
-      return dateStr is string &&
-        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+      return dateStr is string && dateStr.size() > 10;
     }
 
     function hasOnlyAllowedRoomFields() {
@@ -90,9 +89,10 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isCreatingRoom() && isValidRoom();
       
       // Host can update anything. Players can ONLY update buzzedPlayerId and buzzedAt if it's currently null.
-      allow update: if isAuthenticated() && isValidRoom() && (
-        (resource.data.hostId == request.auth.uid && request.resource.data.hostId == resource.data.hostId) ||
+      allow update: if isAuthenticated() && (
+        (resource.data.hostId == request.auth.uid) ||
         (
+          isValidRoom() &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['buzzedPlayerId', 'buzzedAt']) &&
           resource.data.buzzedPlayerId == null &&
           request.resource.data.buzzedPlayerId == request.auth.uid &&

@@ -18,8 +18,18 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
   const [gameState, setGameState] = useState<'waiting' | 'playing' | 'question' | 'buzzed' | 'revealed'>('waiting');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [buzzedPlayerId, setBuzzedPlayerId] = useState<string | null>(null);
+  const [showAnswer, setShowAnswer] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15);
   const [roomId] = useState(config.sessionId || Math.random().toString(36).substr(2, 9));
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedQuestion, setEditedQuestion] = useState<Partial<Question>>({});
+  const [activeQuestion, setActiveQuestion] = useState<Question>(questions[0]);
+
+  useEffect(() => {
+    setActiveQuestion(questions[currentQuestionIndex]);
+    setEditedQuestion(questions[currentQuestionIndex]);
+    setIsEditing(false);
+  }, [currentQuestionIndex, questions]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -62,7 +72,12 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
           id: doc.id,
           name: data.name,
           color: data.color,
-          score: data.score || 0
+          score: data.score || 0,
+          powers: data.powers || {
+            FREEZE: 1,
+            STEAL: 1,
+            SHIELD: 1
+          }
         });
       });
       setConnectedPlayers(currentPlayers);
@@ -73,12 +88,6 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
     return () => {
       unsubscribeRoom();
       unsubscribePlayers();
-      // Cleanup room on unmount
-      getDocs(playersRef).then(snapshot => {
-        snapshot.forEach(d => deleteDoc(d.ref));
-      }).then(() => {
-        deleteDoc(roomRef);
-      }).catch(console.error);
     };
   }, [roomId]);
 
@@ -106,6 +115,7 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
       setCurrentQuestionIndex(currentQuestionIndex + 1);
       setGameState('question');
       setBuzzedPlayerId(null);
+      setShowAnswer(false);
       setTimeLeft(15);
       const roomPath = `rooms/${roomId}`;
       updateDoc(doc(db, roomPath), { 
@@ -114,6 +124,13 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
         buzzedAt: null
       }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     } else {
+      const roomPath = `rooms/${roomId}`;
+      const playersRef = collection(db, 'rooms', roomId, 'players');
+      getDocs(playersRef).then(snapshot => {
+        snapshot.forEach(d => deleteDoc(d.ref));
+      }).then(() => {
+        deleteDoc(doc(db, roomPath));
+      }).catch(console.error);
       onFinish(players);
     }
   };
@@ -121,6 +138,7 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
   const showQuestion = () => {
     setGameState('question');
     setBuzzedPlayerId(null);
+    setShowAnswer(false);
     setTimeLeft(15);
     const roomPath = `rooms/${roomId}`;
     updateDoc(doc(db, roomPath), { 
@@ -130,12 +148,19 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
     }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
   };
 
-  const activeQuestion = questions[currentQuestionIndex];
+  const handleSaveEdit = () => {
+    if (activeQuestion && editedQuestion) {
+      const updatedQ = { ...activeQuestion, ...editedQuestion } as Question;
+      setActiveQuestion(updatedQ);
+      setIsEditing(false);
+    }
+  };
+
   const baseUrl = process.env.SHARED_APP_URL || window.location.origin;
   const joinUrl = `${baseUrl}?mode=remote&roomId=${roomId}`;
 
-  const handleAnswer = (isCorrect: boolean) => {
-    if (isCorrect && buzzedPlayerId) {
+  const handleAnswer = (isCorrect: boolean | null) => {
+    if (isCorrect === true && buzzedPlayerId) {
       const updatedPlayers = players.map(p => 
         p.id === buzzedPlayerId ? { ...p, score: p.score + (activeQuestion.points || 100) } : p
       );
@@ -150,9 +175,10 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
       setGameState('revealed');
       const roomPath = `rooms/${roomId}`;
       updateDoc(doc(db, roomPath), { gameState: 'revealed' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
-    } else {
+    } else if (isCorrect === false) {
       // If wrong, reset buzzer and let others buzz
       setBuzzedPlayerId(null);
+      setShowAnswer(false);
       setGameState('question');
       const roomPath = `rooms/${roomId}`;
       updateDoc(doc(db, roomPath), { 
@@ -160,6 +186,11 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
         buzzedPlayerId: null,
         buzzedAt: null
       }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
+    } else {
+      // No one answered / skip
+      setGameState('revealed');
+      const roomPath = `rooms/${roomId}`;
+      updateDoc(doc(db, roomPath), { gameState: 'revealed' }).catch(err => handleFirestoreError(err, OperationType.WRITE, roomPath));
     }
   };
 
@@ -236,22 +267,22 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
   return (
     <div className="flex flex-col items-center gap-8 py-10 min-h-screen">
       {/* Scoreboard */}
-      <div className="flex justify-center gap-6 w-full max-w-5xl px-6">
+      <div className="flex flex-wrap justify-center gap-4 md:gap-6 w-full max-w-6xl px-4">
         {players.map(p => (
-          <div key={p.id} className="flex-1 bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-lg flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-md" style={{backgroundColor: p.color}}>
+          <div key={p.id} className="flex-1 min-w-[160px] md:min-w-[200px] bg-white p-4 md:p-6 rounded-[2rem] md:rounded-3xl border-2 border-slate-100 shadow-lg flex items-center gap-4">
+            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center text-white text-xl md:text-2xl font-black shadow-md shrink-0" style={{backgroundColor: p.color}}>
               {p.score}
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-col overflow-hidden">
               <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">النقاط</span>
-              <p className="text-lg font-black text-slate-800 truncate">{p.name}</p>
+              <p className="text-base md:text-lg font-black text-slate-800 truncate">{p.name}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* Main Game Area */}
-      <div className="w-full max-w-4xl bg-white rounded-[3rem] p-10 shadow-2xl border-8 border-slate-50 text-center relative overflow-hidden">
+      <div className="w-full max-w-4xl mx-auto bg-white rounded-[2rem] md:rounded-[3rem] p-6 md:p-10 shadow-2xl border-4 md:border-8 border-slate-50 text-center relative overflow-hidden">
         {gameState === 'playing' ? (
           <div className="py-20">
             <h2 className="text-5xl font-black text-slate-800 mb-8">السؤال {currentQuestionIndex + 1}</h2>
@@ -265,14 +296,71 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
               <div className="absolute top-0 left-0 h-2 bg-sky-500 transition-all duration-1000" style={{ width: `${(timeLeft / 15) * 100}%` }}></div>
             )}
             
-            <div className="flex justify-center gap-3 mb-6">
+            <div className="flex justify-center gap-3 mb-6 relative">
+              {config.hexMode === 'manual' && gameState !== 'playing' && (
+                <button 
+                  onClick={() => setIsEditing(true)}
+                  className="absolute -top-12 right-0 p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-sky-100 hover:text-sky-600 transition-colors"
+                  title="تعديل السؤال"
+                >
+                  ✏️
+                </button>
+              )}
               <span className="px-4 py-2 bg-slate-100 rounded-2xl text-slate-500 font-bold text-sm">{activeQuestion.category}</span>
               <span className="px-4 py-2 bg-sky-50 text-sky-600 rounded-2xl font-bold text-sm">{activeQuestion.points || 100} نقطة</span>
             </div>
 
-            <h3 className="text-4xl md:text-5xl font-black text-slate-900 leading-tight mb-8">
-              {activeQuestion.text}
-            </h3>
+            {isEditing ? (
+              <div className="space-y-4 text-right bg-slate-50 p-6 rounded-3xl border-2 border-slate-100">
+                <h3 className="text-2xl font-black text-slate-800 mb-4">تعديل السؤال</h3>
+                <div>
+                  <label className="block text-sm font-bold text-slate-500 mb-1">نص السؤال</label>
+                  <textarea 
+                    value={editedQuestion.text || ''} 
+                    onChange={e => setEditedQuestion({...editedQuestion, text: e.target.value})}
+                    className="w-full p-3 border-2 border-slate-200 rounded-xl outline-none focus:border-sky-500 font-bold text-lg"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-500 mb-1">الإجابة</label>
+                  <input 
+                    type="text"
+                    value={editedQuestion.answer || ''} 
+                    onChange={e => setEditedQuestion({...editedQuestion, answer: e.target.value})}
+                    className="w-full p-3 border-2 border-slate-200 rounded-xl outline-none focus:border-sky-500 font-bold text-lg"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-500 mb-1">الفئة</label>
+                    <input 
+                      type="text"
+                      value={editedQuestion.category || ''} 
+                      onChange={e => setEditedQuestion({...editedQuestion, category: e.target.value})}
+                      className="w-full p-3 border-2 border-slate-200 rounded-xl outline-none focus:border-sky-500 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-500 mb-1">النقاط</label>
+                    <input 
+                      type="number"
+                      value={editedQuestion.points || 100} 
+                      onChange={e => setEditedQuestion({...editedQuestion, points: parseInt(e.target.value) || 0})}
+                      className="w-full p-3 border-2 border-slate-200 rounded-xl outline-none focus:border-sky-500 font-bold"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={handleSaveEdit} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-black hover:bg-green-600">حفظ التعديلات</button>
+                  <button onClick={() => setIsEditing(false)} className="flex-1 py-3 bg-slate-200 text-slate-600 rounded-xl font-black hover:bg-slate-300">إلغاء</button>
+                </div>
+              </div>
+            ) : (
+              <h3 className="text-4xl md:text-5xl font-black text-slate-900 leading-tight mb-8">
+                {activeQuestion.text}
+              </h3>
+            )}
 
             {gameState === 'question' && (
               <div className="py-12 flex flex-col items-center gap-6">
@@ -287,20 +375,41 @@ const BuzzerScreen: React.FC<BuzzerScreenProps> = ({ config, questions, players:
             )}
 
             {gameState === 'buzzed' && buzzedPlayerId && (
-              <div className="py-8 animate-fade-in">
+              <div className="py-8 animate-fade-in w-full">
                 <div className="inline-block p-8 rounded-[3rem] shadow-2xl mb-8 animate-bounce" style={{backgroundColor: players.find(p => p.id === buzzedPlayerId)?.color || '#38bdf8'}}>
                   <p className="text-white text-sm font-black uppercase tracking-widest mb-2 opacity-80">المتسابق الأسرع</p>
                   <h4 className="text-5xl font-black text-white">{players.find(p => p.id === buzzedPlayerId)?.name}</h4>
                 </div>
                 
-                <div className="flex gap-4 justify-center">
-                  <button onClick={() => handleAnswer(true)} className="px-10 py-5 bg-green-500 text-white rounded-2xl text-2xl font-black shadow-lg hover:bg-green-600 hover:scale-105 transition-all">
-                    إجابة صحيحة ✓
-                  </button>
-                  <button onClick={() => handleAnswer(false)} className="px-10 py-5 bg-red-500 text-white rounded-2xl text-2xl font-black shadow-lg hover:bg-red-600 hover:scale-105 transition-all">
-                    إجابة خاطئة ✗
-                  </button>
-                </div>
+                {!showAnswer ? (
+                  <div className="flex justify-center">
+                    <button 
+                      onClick={() => setShowAnswer(true)}
+                      className="px-12 py-6 bg-sky-500 text-white rounded-2xl text-2xl font-black shadow-xl hover:bg-sky-600 hover:scale-105 transition-all"
+                    >
+                      إظهار الإجابة 👁️
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-8 animate-fade-up">
+                    <div className="p-8 bg-[#fefcd2] rounded-3xl border-4 border-black shadow-inner">
+                      <p className="text-sm font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">الإجابة النموذجية</p>
+                      <p className="text-4xl font-black text-black">{activeQuestion.answer}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 justify-center">
+                      <button onClick={() => handleAnswer(true)} className="flex-1 min-w-[200px] px-10 py-5 bg-green-500 text-white rounded-2xl text-2xl font-black shadow-lg hover:bg-green-600 hover:scale-105 transition-all">
+                        إجابة صحيحة ✓
+                      </button>
+                      <button onClick={() => handleAnswer(false)} className="flex-1 min-w-[200px] px-10 py-5 bg-red-500 text-white rounded-2xl text-2xl font-black shadow-lg hover:bg-red-600 hover:scale-105 transition-all">
+                        إجابة خاطئة ✗
+                      </button>
+                      <button onClick={() => handleAnswer(null)} className="flex-1 min-w-[200px] px-10 py-5 bg-slate-500 text-white rounded-2xl text-2xl font-black shadow-lg hover:bg-slate-600 hover:scale-105 transition-all">
+                        لم يجب أحد / تخطي
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
