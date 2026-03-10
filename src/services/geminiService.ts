@@ -84,10 +84,8 @@ const getDifficultyText = (diff: Difficulty) => {
 };
 
 export const getAI = () => {
-  const apiKey = (window as any).process?.env?.GEMINI_API_KEY || 
-                 (window as any).process?.env?.API_KEY || 
-                 process.env.GEMINI_API_KEY || 
-                 process.env.API_KEY || "";
+  // Vite replaces process.env.GEMINI_API_KEY statically during build
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
   return new GoogleGenAI({ apiKey });
 };
 

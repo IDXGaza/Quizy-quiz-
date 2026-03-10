@@ -2,6 +2,8 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
 
 async function startServer() {
   const app = express();

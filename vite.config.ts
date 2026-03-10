@@ -12,10 +12,10 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react(), tailwindcss()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.APP_URL': JSON.stringify(env.APP_URL || 'https://ais-dev-ied55hydlnq3gp45zze4bx-104390108971.europe-west2.run.app'),
-        'process.env.SHARED_APP_URL': JSON.stringify(env.SHARED_APP_URL || 'https://ais-pre-ied55hydlnq3gp45zze4bx-104390108971.europe-west2.run.app')
+        'process.env.API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || process.env.API_KEY || env.GEMINI_API_KEY || env.API_KEY || ''),
+        'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || process.env.API_KEY || env.GEMINI_API_KEY || env.API_KEY || ''),
+        'process.env.APP_URL': JSON.stringify(process.env.APP_URL || env.APP_URL || 'https://ais-dev-ied55hydlnq3gp45zze4bx-104390108971.europe-west2.run.app'),
+        'process.env.SHARED_APP_URL': JSON.stringify(process.env.SHARED_APP_URL || env.SHARED_APP_URL || 'https://ais-pre-ied55hydlnq3gp45zze4bx-104390108971.europe-west2.run.app')
       },
       resolve: {
         alias: {
