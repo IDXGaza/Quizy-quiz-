@@ -45,11 +45,20 @@ const LibraryScreen: React.FC<Props> = ({ onPlaySet, onClose }) => {
     setSavedSets(sets);
   };
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const handleDelete = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذه المجموعة؟')) {
-      const newSets = savedSets.filter(s => s.id !== id);
-      saveSetsToLocal(newSets);
-    }
+    setDeletingId(id);
+  };
+
+  const confirmDelete = (id: string) => {
+    const newSets = savedSets.filter(s => s.id !== id);
+    saveSetsToLocal(newSets);
+    setDeletingId(null);
+  };
+
+  const cancelDelete = () => {
+    setDeletingId(null);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -222,9 +231,20 @@ const LibraryScreen: React.FC<Props> = ({ onPlaySet, onClose }) => {
                       <h3 className="text-xl font-black text-white mb-1">{set.name}</h3>
                       <p className="text-sm text-slate-400">{set.topic}</p>
                     </div>
-                    <button onClick={() => handleDelete(set.id)} className="text-red-400 hover:text-red-300 p-2 bg-red-500/10 rounded-lg transition-colors">
-                      🗑️
-                    </button>
+                    {deletingId === set.id ? (
+                      <div className="flex gap-2">
+                        <button onClick={() => confirmDelete(set.id)} className="text-white p-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-xs font-bold">
+                          تأكيد
+                        </button>
+                        <button onClick={cancelDelete} className="text-slate-300 p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-xs font-bold">
+                          إلغاء
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => handleDelete(set.id)} className="text-red-400 hover:text-red-300 p-2 bg-red-500/10 rounded-lg transition-colors">
+                        🗑️
+                      </button>
+                    )}
                   </div>
                   
                   <div className="flex flex-wrap gap-2 text-xs font-bold">

@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { GameConfig, GameMode, QuestionType, Player, Difficulty } from '../types';
 import { Type } from "@google/genai";
 import { getAI, extractJson } from '../services/geminiService';
+import { useToast } from '../contexts/ToastContext';
 
 interface Props {
   onStart: (config: GameConfig) => void;
 }
 
 const ConfigScreen: React.FC<Props> = ({ onStart }) => {
+  const { showToast } = useToast();
   const [topic, setTopic] = useState('ثقافة عامة');
   const [mode, setMode] = useState<GameMode>(GameMode.HEX_GRID);
   const [numQuestionsState, setNumQuestionsState] = useState<number>(10);
@@ -70,7 +72,7 @@ const ConfigScreen: React.FC<Props> = ({ onStart }) => {
 
   const generateAISamples = async () => {
     if (!topic.trim()) {
-      alert("الرجاء إدخال موضوع المسابقة أولاً.");
+      showToast("الرجاء إدخال موضوع المسابقة أولاً.", "error");
       return;
     }
     setIsGeneratingSamples(true);
@@ -204,7 +206,7 @@ const ConfigScreen: React.FC<Props> = ({ onStart }) => {
       setManualQuestions(samples);
     } catch (error) {
       console.error("Failed to generate samples:", error);
-      alert("حدث خطأ أثناء توليد الأسئلة. يرجى المحاولة مرة أخرى.");
+      showToast("حدث خطأ أثناء توليد الأسئلة. يرجى المحاولة مرة أخرى.", "error");
     } finally {
       setIsGeneratingSamples(false);
     }
@@ -213,7 +215,7 @@ const ConfigScreen: React.FC<Props> = ({ onStart }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputMethod === 'manual' && !isManualValid()) {
-      alert('الرجاء إكمال جميع الأسئلة المطلوبة بشكل صحيح');
+      showToast('الرجاء إكمال جميع الأسئلة المطلوبة بشكل صحيح', "error");
       return;
     }
 

@@ -85,7 +85,20 @@ const getDifficultyText = (diff: Difficulty) => {
 
 export const getAI = () => {
   // Vite replaces process.env.GEMINI_API_KEY statically during build
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+  let apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+  
+  try {
+    const savedSettings = localStorage.getItem('appSettings');
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      if (parsed.apiKeys?.gemini) {
+        apiKey = parsed.apiKeys.gemini;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to read API key from settings", e);
+  }
+
   return new GoogleGenAI({ apiKey });
 };
 
@@ -219,10 +232,23 @@ ${searchKeywords}
         });
         textOutput = response.text || "";
       } else {
+        let apiKeys = {};
+        try {
+          const savedSettings = localStorage.getItem('appSettings');
+          if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            if (parsed.apiKeys) {
+              apiKeys = parsed.apiKeys;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to read API keys from settings", e);
+        }
+
         const res = await fetch('/api/generate-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ promptText: promptText + " Return raw JSON array.", model: currentModel })
+          body: JSON.stringify({ promptText: promptText + " Return raw JSON array.", model: currentModel, apiKeys })
         });
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
@@ -445,10 +471,23 @@ async function fallbackGenerate(topic: string, num: number, mode: GameMode, diff
     } else {
       // If we are here, it means the previous attempt with a non-gemini model failed.
       // We should avoid using the backend again if it's likely to fail.
+      let apiKeys = {};
+      try {
+        const savedSettings = localStorage.getItem('appSettings');
+        if (savedSettings) {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed.apiKeys) {
+            apiKeys = parsed.apiKeys;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to read API keys from settings", e);
+      }
+
       const res = await fetch('/api/generate-questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ promptText: promptText + " Return ONLY valid JSON array.", model: currentModel })
+        body: JSON.stringify({ promptText: promptText + " Return ONLY valid JSON array.", model: currentModel, apiKeys })
       });
       if (!res.ok) {
         throw new Error("Backend failed during fallback");

@@ -6,6 +6,8 @@ import TimedChallengeScreen from './TimedChallengeScreen';
 import PictureGuessScreen from './PictureGuessScreen';
 import { useSettings } from '../contexts/SettingsContext';
 import { extractJson, getAI } from '../services/geminiService';
+import { playSound } from '../utils/sound';
+import { useToast } from '../contexts/ToastContext';
 
 interface Props {
   config: GameConfig;
@@ -25,6 +27,7 @@ const LETTERS = [
 
 const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayers, onFinish }) => {
   const { settings } = useSettings();
+  const { showToast } = useToast();
   const [players, setPlayers] = useState<Player[]>(initialPlayers);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [answeredMap, setAnsweredMap] = useState<Record<string, string>>({}); 
@@ -222,6 +225,7 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
     let updatedAnsweredMap = { ...answeredMap };
     
     if (playerId && isCorrect) {
+      playSound('correct');
       const player = players.find(p => p.id === playerId);
       if (player) {
         updatedAnsweredMap[activeQuestion.id] = player.color;
@@ -238,6 +242,7 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
         setShowScoring(false);
       }
     } else if (playerId && !isCorrect) {
+      playSound('wrong');
       // Wrong answer - subtract points in Grid mode
       newPlayers = players.map(p => {
         if (p.id === playerId) {
@@ -257,6 +262,7 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
       }
       // In GRID mode, we stay on the question so others can try
     } else if (!playerId && !isCorrect) {
+      playSound('wrong');
       // Mark as skipped/no one answered
       updatedAnsweredMap[activeQuestion.id] = '#475569'; // slate-600
       setAnsweredMap(updatedAnsweredMap);
@@ -294,16 +300,18 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
     if (config.mode === GameMode.HEX_GRID) {
       players.forEach(p => {
         if (checkPath(p.color)) {
+          if (!winner) playSound('win');
           setWinner(p);
         }
       });
     } else if (config.mode === GameMode.GRID) {
       if (Object.keys(answeredMap).length === questions.length && questions.length > 0) {
         const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+        if (!winner) playSound('win');
         setWinner(sortedPlayers[0]);
       }
     }
-  }, [answeredMap, checkPath, players, config.mode, questions.length]);
+  }, [answeredMap, checkPath, players, config.mode, questions.length, winner]);
 
   useEffect(() => {
     let timer: number;
@@ -328,6 +336,34 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
       setRevealed(false);
     }
   }, [activeQuestion]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!activeQuestion) return;
+      
+      // Don't trigger shortcuts if user is typing in an input (e.g., editing question)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setRevealed(true);
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        handleAnswer(null, false);
+      } else if (e.key >= '1' && e.key <= '9') {
+        const playerIdx = parseInt(e.key) - 1;
+        if (playerIdx < players.length) {
+          e.preventDefault();
+          handleAnswer(players[playerIdx].id, true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeQuestion, players, handleAnswer]);
 
   const jeopardyGrid = useMemo(() => {
     if (config.mode !== GameMode.GRID) return {};
@@ -489,10 +525,23 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
       } else {
         const backendPrompt = promptText + `\n\nIMPORTANT: You MUST return ONLY a valid JSON object with two keys: "question" (string) and "answer" (string). Do NOT wrap the JSON in markdown blocks like \`\`\`json. Just return the raw JSON object.`;
         
+        let apiKeys = {};
+        try {
+          const savedSettings = localStorage.getItem('appSettings');
+          if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            if (parsed.apiKeys) {
+              apiKeys = parsed.apiKeys;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to read API keys from settings", e);
+        }
+
         const res = await fetch('/api/generate-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ promptText: backendPrompt, model: settings.aiModel })
+          body: JSON.stringify({ promptText: backendPrompt, model: settings.aiModel, apiKeys })
         });
         
         if (!res.ok) {
@@ -612,14 +661,14 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
 
     // If cell is frozen, nobody can click it
     if (isFrozen) {
-      alert("هذه الخلية مجمدة حالياً!");
+      showToast("هذه الخلية مجمدة حالياً!", "error");
       return;
     }
 
     // If using FREEZE power
     if (activePower === PowerType.FREEZE) {
       if (currentColor) {
-        alert("لا يمكنك تجميد خلية محتلة!");
+        showToast("لا يمكنك تجميد خلية محتلة!", "error");
         return;
       }
       setFrozenCells(prev => ({ ...prev, [q.id]: players.length })); // Freeze for one full round
@@ -633,7 +682,7 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
     // If using SHIELD power
     if (activePower === PowerType.SHIELD) {
       if (currentColor !== player.color) {
-        alert("يمكنك حماية خلاياك فقط!");
+        showToast("يمكنك حماية خلاياك فقط!", "error");
         return;
       }
       setShieldedCells(prev => ({ ...prev, [q.id]: true }));
@@ -647,11 +696,11 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
     // If using STEAL power
     if (activePower === PowerType.STEAL) {
       if (!currentColor || currentColor === player.color) {
-        alert("يمكنك سرقة خلايا الخصم فقط!");
+        showToast("يمكنك سرقة خلايا الخصم فقط!", "error");
         return;
       }
       if (isShielded) {
-        alert("هذه الخلية محمية بدرع!");
+        showToast("هذه الخلية محمية بدرع!", "error");
         return;
       }
       // Proceed to question but it will be HARD
@@ -700,7 +749,14 @@ const GameScreen: React.FC<Props> = ({ config, questions, players: initialPlayer
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-fade-in">
         <div className="bg-white w-full max-w-3xl rounded-[2rem] md:rounded-[3.5rem] p-6 md:p-10 shadow-2xl relative overflow-y-auto max-h-[90vh] text-center border-8 md:border-[12px] border-slate-50">
-          {!isLoadingQuestion && <div className="absolute top-0 left-0 h-2 bg-blue-600 transition-all duration-1000 shadow-[0_0_10px_rgba(37,99,235,0.5)]" style={{ width: `${(timeLeft / TIMER_DURATION) * 100}%` }}></div>}
+          {!isLoadingQuestion && (
+            <>
+              <div className={`absolute top-0 left-0 h-2 transition-all duration-1000 ${timeLeft <= 5 ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]'}`} style={{ width: `${(timeLeft / TIMER_DURATION) * 100}%` }}></div>
+              <div className={`absolute top-6 left-6 font-mono text-2xl font-black ${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
+                {timeLeft}s
+              </div>
+            </>
+          )}
           
           {isLoadingQuestion ? (
             <div className="flex flex-col items-center gap-6 py-12">

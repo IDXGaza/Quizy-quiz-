@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Player, GameConfig, Question, SavedSet } from '../types';
+import confetti from 'canvas-confetti';
 
 interface Props {
   config: GameConfig;
@@ -13,6 +14,34 @@ const SummaryScreen: React.FC<Props> = ({ config, questions, players, onRestart 
   const [isSaved, setIsSaved] = useState(false);
   const sorted = [...players].sort((a, b) => b.score - a.score);
   
+  useEffect(() => {
+    // Fire confetti when the summary screen loads
+    const duration = 3 * 1000;
+    const end = Date.now() + duration;
+
+    const frame = () => {
+      confetti({
+        particleCount: 5,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0 },
+        colors: ['#38bdf8', '#818cf8', '#c084fc']
+      });
+      confetti({
+        particleCount: 5,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1 },
+        colors: ['#38bdf8', '#818cf8', '#c084fc']
+      });
+
+      if (Date.now() < end) {
+        requestAnimationFrame(frame);
+      }
+    };
+    frame();
+  }, []);
+
   const handleSaveToLibrary = () => {
     if (isSaved) return;
     

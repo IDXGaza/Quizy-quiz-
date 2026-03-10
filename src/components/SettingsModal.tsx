@@ -91,8 +91,48 @@ const SettingsModal: React.FC = () => {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* API Keys */}
+          <div className="space-y-3">
+            <label className="text-sm font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">مفاتيح API</label>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-400 block mb-1">Gemini API Key</label>
+                <input 
+                  type="password" 
+                  value={settings.apiKeys?.gemini || ''}
+                  onChange={(e) => updateSettings({ apiKeys: { ...settings.apiKeys, gemini: e.target.value } })}
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white focus:border-sky-500 outline-none transition-colors"
+                  placeholder="AIzaSy..."
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 block mb-1">OpenAI API Key</label>
+                <input 
+                  type="password" 
+                  value={settings.apiKeys?.openai || ''}
+                  onChange={(e) => updateSettings({ apiKeys: { ...settings.apiKeys, openai: e.target.value } })}
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white focus:border-sky-500 outline-none transition-colors"
+                  placeholder="sk-..."
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 block mb-1">Anthropic API Key</label>
+                <input 
+                  type="password" 
+                  value={settings.apiKeys?.anthropic || ''}
+                  onChange={(e) => updateSettings({ apiKeys: { ...settings.apiKeys, anthropic: e.target.value } })}
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white focus:border-sky-500 outline-none transition-colors"
+                  placeholder="sk-ant-..."
+                  dir="ltr"
+                />
+              </div>
+            </div>
             <p className="text-xs text-slate-400 mt-1">
-              * ملاحظة: استخدام نماذج OpenAI و Anthropic يتطلب إضافة مفاتيح API الخاصة بها في إعدادات الخادم.
+              * يتم حفظ المفاتيح محلياً في متصفحك فقط.
             </p>
           </div>
 

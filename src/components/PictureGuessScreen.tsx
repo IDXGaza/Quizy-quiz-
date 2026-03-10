@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameConfig, Player, Question } from '../types';
 
 const ChallengeImage = ({ keyword, emoji, imageUrl }: { keyword?: string, emoji?: string, imageUrl?: string }) => {

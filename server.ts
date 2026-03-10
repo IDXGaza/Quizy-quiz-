@@ -18,15 +18,15 @@ async function startServer() {
 
   app.post("/api/generate-questions", async (req, res) => {
     try {
-      const { promptText, model } = req.body;
+      const { promptText, model, apiKeys } = req.body;
 
       if (!model) {
         return res.status(400).json({ error: "Model is required" });
       }
 
       if (model.startsWith("gpt")) {
-        const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) throw new Error("OPENAI_API_KEY is not set in environment variables");
+        const apiKey = apiKeys?.openai || process.env.OPENAI_API_KEY;
+        if (!apiKey) throw new Error("OpenAI API key is not set. Please add it in Settings.");
         const openai = new OpenAI({ apiKey });
         const response = await openai.chat.completions.create({
           model: model,
@@ -34,8 +34,8 @@ async function startServer() {
         });
         res.json({ text: response.choices[0].message.content });
       } else if (model.startsWith("claude")) {
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set in environment variables");
+        const apiKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) throw new Error("Anthropic API key is not set. Please add it in Settings.");
         const anthropic = new Anthropic({ apiKey });
         const response = await anthropic.messages.create({
           model: model,

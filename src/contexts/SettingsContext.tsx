@@ -13,12 +13,22 @@ export interface AppSettings {
   theme: Theme;
   aiModel: AIModel;
   timedDuration: number;
+  apiKeys: {
+    gemini: string;
+    openai: string;
+    anthropic: string;
+  };
 }
 
 const defaultSettings: AppSettings = {
   theme: 'light',
   aiModel: 'gemini-3-flash-preview',
   timedDuration: 120,
+  apiKeys: {
+    gemini: '',
+    openai: '',
+    anthropic: '',
+  }
 };
 
 interface SettingsContextType {
